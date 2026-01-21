@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  traefik:
+    image: traefik:v3.6.7
+    container_name: traefik
+    restart: unless-stopped
+
+    security_opt:
+      - no-new-privileges:true
+
+    networks:
+      - proxy
+
+    command:
+      # Core
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+
+      # Dashboard
+      - "--api.dashboard=true"
+
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+
+      # Default TLS for all HTTPS routers
+      - "--entrypoints.websecure.http.tls=true"
+      - "--entrypoints.websecure.http.tls.certresolver=ovh"
+
+      # ACME DNS-01 (OVH)
+      - "--certificatesresolvers.ovh.acme.email=YOUR_EMAIL"
+      - "--certificatesresolvers.ovh.acme.storage=/data/acme.json"
+      - "--certificatesresolvers.ovh.acme.dnschallenge=true"
+      - "--certificatesresolvers.ovh.acme.dnschallenge.provider=ovh"
+      - "--certificatesresolvers.ovh.acme.dnschallenge.delaybeforecheck=30"
+
+    ports:
+      - "80:80"
+      - "443:443"
+      # REMOVE in production if not needed
+      # - "8080:8080"
+
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/acme.json:/data/acme.json
+
+    env_file: .env
+
+    labels:
+      - "traefik.enable=true"
+
+      # ======================
+      # HTTP → HTTPS redirect
+      # ======================
+      - "traefik.http.routers.traefik-http.entrypoints=web"
+      - "traefik.http.routers.traefik-http.rule=Host(`traefik.YOUR_DOMAIN`)"
+      - "traefik.http.routers.traefik-http.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+
+      - "--entrypoints.websecure.http.encodedCharacters.allowEncodedSlash=true"
+
+      # ======================
+      # HTTPS Dashboard
+      # ======================
+      - "traefik.http.routers.traefik-https.entrypoints=websecure"
+      - "traefik.http.routers.traefik-https.rule=Host(`traefik.YOUR_DOMAIN`)"
+      - "traefik.http.routers.traefik-https.service=api@internal"
+      - "traefik.http.routers.traefik-https.middlewares=dashboard-auth"
+      - "traefik.http.middlewares.dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_CREDENTIALS}"
+
+networks:
+  proxy:
+    external: true
+
